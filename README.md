@@ -26,7 +26,7 @@ This library produces one predictable AppError for UI, logging, and retries.
 ### Guarantees
 This library guarantees that:
 
-- Every normalization function (`toAppError`, `fromFetch`) **never throws**
+- Every normalization function (`toAppError`, `fromFetch`, `fromFetchResponse`) **never throws**
 - You always receive a **predictable `AppError` shape**
 - `message` is always safe to display in UI
 - Original errors are preserved via `cause` for debugging
@@ -82,30 +82,19 @@ try {
 ### Example 2 — Fetch handling non-OK responses
 
 ```ts
-import { defineErrorPolicy, fromFetch, toAppError } from "@twinedo/app-error";
+import { defineErrorPolicy, fromFetchResponse, toAppError } from "@twinedo/app-error";
 
 const policy = defineErrorPolicy();
 
-const readBody = async (res: Response): Promise<unknown> => {
-  const text = await res.text();
-  if (!text) return undefined;
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-};
-
 try {
   const res = await fetch("/api/user");
-  const body = await readBody(res);
 
   if (!res.ok) {
-    throw fromFetch(res, body, policy);
+    throw await fromFetchResponse(res, policy);
   }
 
-  console.log("User:", body);
+  const data = await res.json();
+  console.log("User:", data);
 } catch (err) {
   const appError = toAppError(err, policy);
   console.error(appError.message);
