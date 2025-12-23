@@ -1,8 +1,51 @@
 # @twinedo/app-error
 
-A small, dependency-free error normalization layer that turns any thrown error
-(fetch, axios-like, or runtime) into a predictable `AppError` shape. Use it to
-standardize UI messaging, retry logic, and logging across mixed stacks.
+Framework-agnostic error normalization for fetch, axios-like clients, and runtime failures.
+
+## Why this exists
+
+Most teams talk to more than one backend.
+Each backend returns a different error shape (Project A vs Project B).
+fetch and axios surface errors in different ways.
+So every project rewrites the same parsing, message, and retry rules.
+This library produces one predictable AppError for UI, logging, and retries.
+
+## Features
+
+- Predictable `AppError` shape for UI, logging, and retry logic
+- Works with `fetch` responses and axios-like errors
+- Configurable per backend via `defineErrorPolicy`
+- Framework-agnostic (React, React Native, Vue, Angular, Node)
+- TypeScript-first with exported types
+- Defensive normalization that never throws
+- Retry decision helpers like `isRetryable`
+- Zero dependencies
+
+## Guarantees & Non-Goals
+
+### Guarantees
+This library guarantees that:
+
+- Every normalization function (`toAppError`, `fromFetch`) **never throws**
+- You always receive a **predictable `AppError` shape**
+- `message` is always safe to display in UI
+- Original errors are preserved via `cause` for debugging
+- No input error is mutated
+- Behavior is deterministic and side-effect free
+- Fully TypeScript-friendly with stable public types
+
+### Non-Goals
+This library intentionally does NOT:
+
+- Automatically guess backend-specific error schemas
+- Perform logging, reporting, or analytics
+- Display UI or toast notifications
+- Enforce localization or translations
+- Replace HTTP clients like fetch or axios
+- Hide errors or swallow failures silently
+
+If your project has backend-specific error formats, use
+`defineErrorPolicy` to explicitly describe how errors should be interpreted.
 
 ## Install
 
@@ -10,119 +53,145 @@ standardize UI messaging, retry logic, and logging across mixed stacks.
 npm install @twinedo/app-error
 ```
 
-## What problem this solves
+Published as the scoped package `@twinedo/app-error`. Ships ESM + CJS builds
+with TypeScript types and works in Node and browser runtimes.
 
-Different APIs and HTTP clients emit wildly different error shapes. This library
-normalizes them into a single `AppError` so your app can consistently:
-- show a safe UI message
-- decide whether to retry
-- log a stable fingerprint
+## Examples
 
-## Axios example
+### Example 1 — Axios with try/catch
 
 ```ts
 import axios from "axios";
-import { toAppError } from "@twinedo/app-error";
+import { defineErrorPolicy, isRetryable, toAppError } from "@twinedo/app-error";
+
+const policy = defineErrorPolicy();
 
 try {
-  await axios.get("/api/user");
-} catch (error) {
-  const appError = toAppError(error);
-  console.log(appError.kind, appError.status, appError.message);
+  const response = await axios.get<{ id: string; name: string }>("/api/user");
+  console.log("User:", response.data.name);
+} catch (err) {
+  const appError = toAppError(err, policy);
+  console.error(appError.message);
+
+  if (isRetryable(appError)) {
+    // show a retry action or schedule a retry
+  }
 }
 ```
 
-## Fetch example
+### Example 2 — Fetch handling non-OK responses
 
 ```ts
-import { fromFetch } from "@twinedo/app-error";
+import { defineErrorPolicy, fromFetch, toAppError } from "@twinedo/app-error";
 
-const response = await fetch("/api/user");
-const body = await response.json().catch(() => undefined);
+const policy = defineErrorPolicy();
 
-if (!response.ok) {
-  throw fromFetch(response, body);
+const readBody = async (res: Response): Promise<unknown> => {
+  const text = await res.text();
+  if (!text) return undefined;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
+try {
+  const res = await fetch("/api/user");
+  const body = await readBody(res);
+
+  if (!res.ok) {
+    throw fromFetch(res, body, policy);
+  }
+
+  console.log("User:", body);
+} catch (err) {
+  const appError = toAppError(err, policy);
+  console.error(appError.message);
 }
 ```
 
-## Project A vs Project B policy configuration
+### Example 3 — Project A vs Project B backend policies
 
 ```ts
-import { defineErrorPolicy } from "@twinedo/app-error";
+import axios from "axios";
+import { defineErrorPolicy, toAppError } from "@twinedo/app-error";
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const readString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
+const readHeader = (headers: unknown, name: string): string | undefined => {
+  if (!headers) return undefined;
+  const getter = (headers as { get?: (key: string) => string | null | undefined })
+    .get;
+  if (typeof getter === "function") {
+    return getter.call(headers, name) ?? undefined;
+  }
+  return readString((headers as Record<string, unknown>)[name]);
+};
+
+// Project A (Tony backend): { error: { message, code } }, header x-request-id
 const projectAPolicy = defineErrorPolicy({
   http: {
-    message: (data) => (typeof data === "object" && data ? data.message : undefined),
-    code: (data) => (typeof data === "object" && data ? data.code : undefined),
-    requestId: (headers) => headers?.get?.("x-request-id") ?? undefined,
+    message: (data) =>
+      isRecord(data) && isRecord(data.error)
+        ? readString(data.error.message)
+        : undefined,
+    code: (data) =>
+      isRecord(data) && isRecord(data.error)
+        ? readString(data.error.code)
+        : undefined,
+    requestId: (headers) => readHeader(headers, "x-request-id"),
   },
 });
 
+// Project B (Bobby backend): { message | msg, code }, header x-correlation-id
 const projectBPolicy = defineErrorPolicy({
   http: {
     message: (data) =>
-      typeof data === "object" && data && "error" in data
-        ? String((data as { error: unknown }).error)
+      isRecord(data)
+        ? readString(data.message) ?? readString(data.msg)
         : undefined,
-    code: (data) =>
-      typeof data === "object" && data && "errorCode" in data
-        ? String((data as { errorCode: unknown }).errorCode)
-        : undefined,
-    requestId: (headers) => headers?.get?.("x-correlation-id") ?? undefined,
-    retryable: (status) => status === 429 || (status ? status >= 500 : false),
+    code: (data) => (isRecord(data) ? readString(data.code) : undefined),
+    requestId: (headers) => readHeader(headers, "x-correlation-id"),
   },
 });
-```
 
-## React / React Native usage
+const handleError = (
+  err: unknown,
+  policy: ReturnType<typeof defineErrorPolicy>
+) => {
+  const appError = toAppError(err, policy);
+  console.error(appError.message, appError.code, appError.requestId);
+};
 
-```tsx
-import { useEffect, useState } from "react";
-import { fromFetch, isRetryable, toAppError } from "@twinedo/app-error";
+try {
+  await axios.get("/api/user");
+} catch (err) {
+  handleError(err, projectAPolicy);
+}
 
-export function ProfileScreen() {
-  const [error, setError] = useState<ReturnType<typeof toAppError> | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    fetch("/api/profile")
-      .then(async (response) => {
-        const body = await response.json().catch(() => undefined);
-        if (!response.ok) throw fromFetch(response, body);
-        return body;
-      })
-      .catch((err) => {
-        if (!mounted) return;
-        setError(toAppError(err));
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  if (!error) return null;
-
-  return (
-    <>
-      <Text>{error.message}</Text>
-      {isRetryable(error) ? <Button title="Retry" /> : null}
-    </>
-  );
+try {
+  await axios.get("/api/user");
+} catch (err) {
+  handleError(err, projectBPolicy);
 }
 ```
 
-## Retry decision example
+### Example 4 — attempt() helper
 
 ```ts
-import { isRetryable, toAppError } from "@twinedo/app-error";
+import { attempt } from "@twinedo/app-error";
 
-try {
-  await apiCall();
-} catch (error) {
-  const appError = toAppError(error);
-  if (isRetryable(appError)) {
-    // show retry action or auto-retry
-  }
+const result = await attempt(() => apiCall());
+
+if (result.ok) {
+  console.log("Data:", result.data);
+} else {
+  console.error(result.error.message);
 }
 ```
