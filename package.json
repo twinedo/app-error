@@ -5,8 +5,10 @@
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
-   "scripts": {
+  "files": [
+    "dist"
+  ],
+  "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "prepublishOnly": "npm run build",
     "clean": "rm -rf dist"
@@ -29,5 +31,13 @@
   "devDependencies": {
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twinedo/app-error.git"
+  },
+  "bugs": {
+    "url": "https://github.com/twinedo/app-error/issues"
+  },
+  "homepage": "https://github.com/twinedo/app-error#readme"
 }
