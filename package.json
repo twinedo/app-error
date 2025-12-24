@@ -1,6 +1,6 @@
 {
   "name": "@twinedo/app-error",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A configurable error normalization layer for fetch, axios-like, and runtime errors.",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
