@@ -1,6 +1,6 @@
 # @twinedo/app-error
 
-Framework-agnostic error normalization for fetch, axios-like clients, and runtime failures.
+A framework-agnostic JavaScript/TypeScript library to normalize fetch, axios, and runtime errors into a predictable AppError model. Open to contributions.
 
 ## Why this exists
 
