@@ -105,69 +105,53 @@ try {
 
 ```ts
 import axios from "axios";
-import { defineErrorPolicy, toAppError } from "@twinedo/app-error";
+import {
+  defineErrorPolicy,
+  toAppError,
+  fromFetchResponse,
+} from "@twinedo/app-error";
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined;
-
-const readHeader = (headers: unknown, name: string): string | undefined => {
-  if (!headers) return undefined;
-  const getter = (headers as { get?: (key: string) => string | null | undefined })
-    .get;
-  if (typeof getter === "function") {
-    return getter.call(headers, name) ?? undefined;
-  }
-  return readString((headers as Record<string, unknown>)[name]);
-};
-
-// Project A (Tony backend): { error: { message, code } }, header x-request-id
-const projectAPolicy = defineErrorPolicy({
+// Tony backend: { error: { message, code } }, x-request-id
+const policyTony = defineErrorPolicy({
   http: {
-    message: (data) =>
-      isRecord(data) && isRecord(data.error)
-        ? readString(data.error.message)
-        : undefined,
-    code: (data) =>
-      isRecord(data) && isRecord(data.error)
-        ? readString(data.error.code)
-        : undefined,
-    requestId: (headers) => readHeader(headers, "x-request-id"),
+    message: (data) => (data as any)?.error?.message,
+    code: (data) => (data as any)?.error?.code,
+    requestId: (headers) => (headers as any)?.["x-request-id"],
   },
 });
 
-// Project B (Bobby backend): { message | msg, code }, header x-correlation-id
-const projectBPolicy = defineErrorPolicy({
+// Bobby backend: { message | msg, code }, x-correlation-id
+const policyBobby = defineErrorPolicy({
   http: {
-    message: (data) =>
-      isRecord(data)
-        ? readString(data.message) ?? readString(data.msg)
-        : undefined,
-    code: (data) => (isRecord(data) ? readString(data.code) : undefined),
-    requestId: (headers) => readHeader(headers, "x-correlation-id"),
+    message: (data) => (data as any)?.message ?? (data as any)?.msg,
+    code: (data) => (data as any)?.code,
+    requestId: (headers) => (headers as any)?.["x-correlation-id"],
   },
 });
 
-const handleError = (
-  err: unknown,
-  policy: ReturnType<typeof defineErrorPolicy>
-) => {
-  const appError = toAppError(err, policy);
-  console.error(appError.message, appError.code, appError.requestId);
-};
-
-try {
-  await axios.get("/api/user");
-} catch (err) {
-  handleError(err, projectAPolicy);
+// One handler for UI/logs
+function handleError(err: unknown, policy = policyTony) {
+  const e = toAppError(err, policy);
+  console.error(e.message, e.code, e.requestId);
 }
 
-try {
-  await axios.get("/api/user");
-} catch (err) {
-  handleError(err, projectBPolicy);
+// Request using axios (Tony backend)
+async function loadUserAxios() {
+  try {
+    await axios.get("/api/user"); // Tony API
+  } catch (err) {
+    handleError(err, policyTony);
+  }
+}
+
+// Request using fetch (Bobby backend)
+async function loadUserFetch() {
+  try {
+    const res = await fetch("/api/user"); // Bobby API
+    if (!res.ok) throw await fromFetchResponse(res, policyBobby);
+  } catch (err) {
+    handleError(err, policyBobby);
+  }
 }
 ```
 
