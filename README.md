@@ -168,3 +168,35 @@ if (result.ok) {
   console.error(result.error.message);
 }
 ```
+
+## FAQ
+### 1. Why not just use `try/catch` with `err.message`?
+Because real-world errors are inconsistent:
+- fetch doesn’t throw on 4xx/5xx (you must check res.ok)
+- axios errors have a different shape (error.response, error.request)
+- network/timeout/runtime errors look different across environments
+This library normalizes them into one predictable AppError.
+
+### 2. Does `message` always contain the backend error message?
+When possible, yes. Otherwise it falls back to a safe default.<br />
+`message` is always a non-empty string. If the backend returns no usable message (e.g. `{}`, `null`), it becomes `"Something went wrong"`.
+
+### 3. What about status?
+`status` is set only when there is an actual HTTP response (kind "http"), e.g. `400`, `404`, `500`.<br />
+For network/timeout/runtime `errors`, `status` is `undefined`.
+
+### 4. Do I need to define a policy?
+Only if your backend error shape is custom and you want more accurate extraction for:
+- `message`
+- `code`
+- `requestId`<br />
+If your backend already returns `{ message: "..." }`, you can usually skip policies.
+
+### 5. Is it framework-agnostic?
+Yes. It’s plain JS/TS and can be used in React, React Native, Vue, Svelte, Angular, Node, etc.
+
+### 6. Does it add a lot to bundle size?
+It’s dependency-free and tree-shakable in modern bundlers. Your app typically includes only what you import.
+
+### 7. Is this a replacement for an HTTP client?
+No. This library does not send requests or manage retries. It only normalizes errors.
