@@ -14,6 +14,7 @@ export type HttpPolicy = {
   code: (data: unknown, response?: HttpResponseLike) => string | undefined;
   requestId: (headers?: HeadersLike) => string | undefined;
   retryable: (status?: number) => boolean;
+  suggestion: (status?: number, data?: unknown, response?: HttpResponseLike) => string | undefined;
 };
 
 export type ErrorPolicy = {
@@ -180,11 +181,32 @@ const defaultHttpRetryable = (status?: number) => {
   return status >= 500 && status <= 599;
 };
 
+const DEFAULT_HTTP_SUGGESTIONS: Record<number, string> = {
+  400: "Please review your request and ensure all fields are correct.",
+  401: "Please ensure you have valid credentials and try again.",
+  403: "You do not have permission to perform this action.",
+  404: "The requested resource could not be found. Please verify your request.",
+  408: "The request took too long. Please try again shortly.",
+  409: "A conflict occurred. Please refresh and try again.",
+  422: "Some of the provided data is invalid. Please review your input.",
+  429: "Too many requests. Please wait a moment and try again.",
+  500: "An internal server error occurred. Please try again later or contact support.",
+  502: "The server received an invalid response. Please try again later.",
+  503: "The service is temporarily unavailable. Please try again later.",
+  504: "The server did not respond in time. Please try again later.",
+};
+
+const defaultHttpSuggestion = (status?: number): string | undefined => {
+  if (typeof status !== "number") return undefined;
+  return DEFAULT_HTTP_SUGGESTIONS[status];
+};
+
 const DEFAULT_HTTP_POLICY: HttpPolicy = {
   message: defaultHttpMessage,
   code: defaultHttpCode,
   requestId: defaultRequestId,
   retryable: defaultHttpRetryable,
+  suggestion: defaultHttpSuggestion,
 };
 
 export const defineErrorPolicy = (
@@ -203,6 +225,7 @@ export const defineErrorPolicy = (
       code: merged.code ?? DEFAULT_HTTP_POLICY.code,
       requestId: merged.requestId ?? DEFAULT_HTTP_POLICY.requestId,
       retryable: merged.retryable ?? DEFAULT_HTTP_POLICY.retryable,
+      suggestion: merged.suggestion ?? DEFAULT_HTTP_POLICY.suggestion,
     },
   };
 };

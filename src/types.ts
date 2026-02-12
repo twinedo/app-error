@@ -9,6 +9,7 @@ export type AppErrorKind =
 export type AppError = {
   kind: AppErrorKind;
   message: string;
+  suggestion: string;
   status?: number;
   code?: string;
   retryable?: boolean;
@@ -33,5 +34,7 @@ export const isAppError = (value: unknown): value is AppError => {
   if (!isRecord(value)) return false;
   const kind = value.kind;
   if (typeof kind !== "string" || !(kind in APP_ERROR_KINDS)) return false;
-  return typeof value.message === "string";
+  if (typeof value.message !== "string") return false;
+  if (typeof value.suggestion !== "string") return false;
+  return true;
 };

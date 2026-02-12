@@ -2,6 +2,7 @@ import {
   defineErrorPolicy,
   type ErrorPolicy,
   type HeadersLike,
+  type HttpResponseLike,
 } from "./policy.js";
 import { type AppError } from "./types.js";
 
@@ -41,13 +42,19 @@ export const fromFetch = (
   const resolvedPolicy = defineErrorPolicy(policy);
   const status = typeof response.status === "number" ? response.status : undefined;
 
+  const httpResponse: HttpResponseLike = {
+    ...(status !== undefined ? { status } : {}),
+    ...(response.statusText ? { statusText: response.statusText } : {}),
+    ...(response.headers !== undefined ? { headers: response.headers } : {}),
+  };
+
   const message =
     normalizeMessage(
-      safeInvoke(() => resolvedPolicy.http.message(body, response))
+      safeInvoke(() => resolvedPolicy.http.message(body, httpResponse))
     ) ?? DEFAULT_MESSAGE;
 
   const code = normalizeMessage(
-    safeInvoke(() => resolvedPolicy.http.code(body, response))
+    safeInvoke(() => resolvedPolicy.http.code(body, httpResponse))
   );
 
   const requestId = normalizeMessage(
@@ -58,10 +65,17 @@ export const fromFetch = (
     safeInvoke(() => resolvedPolicy.http.retryable(status)) ??
     defaultRetryable(status);
 
+  const DEFAULT_SUGGESTION = "An unexpected error occurred. Please try again or contact support.";
+
+  const suggestion = normalizeMessage(
+    safeInvoke(() => resolvedPolicy.http.suggestion(status, body, httpResponse))
+  ) ?? DEFAULT_SUGGESTION;
+
   return {
     kind: "http",
     message,
     retryable,
+    suggestion,
     ...(status !== undefined ? { status } : {}),
     ...(code ? { code } : {}),
     ...(requestId ? { requestId } : {}),

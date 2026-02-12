@@ -8,6 +8,15 @@ import { type AppError, type AppErrorKind, isAppError } from "./types.js";
 
 const DEFAULT_MESSAGE = "Something went wrong";
 
+const DEFAULT_KIND_SUGGESTIONS: Record<AppErrorKind, string> = {
+  network: "Please check your internet connection and try again.",
+  timeout: "The request took too long. Please try again shortly.",
+  parse: "The server returned an unexpected response. Please try again or contact support.",
+  validation: "Please review your input and correct any errors.",
+  unknown: "An unexpected error occurred. Please try again or contact support.",
+  http: "",
+};
+
 const NETWORK_ERROR_CODES = new Set([
   "ENOTFOUND",
   "ECONNREFUSED",
@@ -101,17 +110,22 @@ const normalizeExisting = (error: AppError): AppError => {
     typeof error.retryable === "boolean"
       ? error.retryable
       : defaultRetryable(error.kind, error.status);
+  const suggestion =
+    normalizeMessage(error.suggestion) ??
+    (DEFAULT_KIND_SUGGESTIONS[error.kind] || "An unexpected error occurred. Please try again or contact support.");
 
   return {
     ...error,
     message,
     retryable,
+    suggestion,
   };
 };
 
 const buildAppError = (options: {
   kind: AppErrorKind;
   message: string;
+  suggestion: string;
   status?: number | undefined;
   code?: string | undefined;
   retryable: boolean;
@@ -122,6 +136,7 @@ const buildAppError = (options: {
   kind: options.kind,
   message: options.message,
   retryable: options.retryable,
+  suggestion: options.suggestion,
   ...(options.status !== undefined ? { status: options.status } : {}),
   ...(options.code ? { code: options.code } : {}),
   ...(options.requestId ? { requestId: options.requestId } : {}),
@@ -161,10 +176,14 @@ const fromStatusObject = (
   const retryable =
     safeInvoke(() => policy.http.retryable(status)) ??
     defaultRetryable("http", status);
+  const suggestion = normalizeMessage(
+    safeInvoke(() => policy.http.suggestion(status, details, response))
+  ) ?? DEFAULT_KIND_SUGGESTIONS.unknown;
 
   return buildAppError({
     kind: "http",
     message,
+    suggestion,
     status,
     code: normalizeMessage(code),
     retryable,
@@ -197,10 +216,14 @@ export const toAppError = (error: unknown, policy?: ErrorPolicy): AppError => {
         const retryable =
           safeInvoke(() => resolvedPolicy.http.retryable(axiosInfo.status)) ??
           defaultRetryable("http", axiosInfo.status);
+        const suggestion = normalizeMessage(
+          safeInvoke(() => resolvedPolicy.http.suggestion(axiosInfo.status, axiosInfo.data, response))
+        ) ?? DEFAULT_KIND_SUGGESTIONS.unknown;
 
         return buildAppError({
           kind: "http",
           message,
+          suggestion,
           status: axiosInfo.status,
           code: normalizeMessage(code),
           retryable,
@@ -214,6 +237,7 @@ export const toAppError = (error: unknown, policy?: ErrorPolicy): AppError => {
         return buildAppError({
           kind: "timeout",
           message: DEFAULT_MESSAGE,
+          suggestion: DEFAULT_KIND_SUGGESTIONS.timeout,
           retryable: false,
           cause: error,
         });
@@ -223,6 +247,7 @@ export const toAppError = (error: unknown, policy?: ErrorPolicy): AppError => {
         return buildAppError({
           kind: "network",
           message: DEFAULT_MESSAGE,
+          suggestion: DEFAULT_KIND_SUGGESTIONS.network,
           retryable: true,
           cause: error,
         });
@@ -235,6 +260,7 @@ export const toAppError = (error: unknown, policy?: ErrorPolicy): AppError => {
       return buildAppError({
         kind: "timeout",
         message: DEFAULT_MESSAGE,
+        suggestion: DEFAULT_KIND_SUGGESTIONS.timeout,
         retryable: false,
         cause: error,
       });
@@ -244,6 +270,7 @@ export const toAppError = (error: unknown, policy?: ErrorPolicy): AppError => {
       return buildAppError({
         kind: "network",
         message: DEFAULT_MESSAGE,
+        suggestion: DEFAULT_KIND_SUGGESTIONS.network,
         retryable: true,
         cause: error,
       });
@@ -253,6 +280,7 @@ export const toAppError = (error: unknown, policy?: ErrorPolicy): AppError => {
       return buildAppError({
         kind: "parse",
         message: DEFAULT_MESSAGE,
+        suggestion: DEFAULT_KIND_SUGGESTIONS.parse,
         retryable: false,
         cause: error,
       });
@@ -262,6 +290,7 @@ export const toAppError = (error: unknown, policy?: ErrorPolicy): AppError => {
       return buildAppError({
         kind: "validation",
         message: DEFAULT_MESSAGE,
+        suggestion: DEFAULT_KIND_SUGGESTIONS.validation,
         retryable: false,
         cause: error,
         details: error,
@@ -277,6 +306,7 @@ export const toAppError = (error: unknown, policy?: ErrorPolicy): AppError => {
   return buildAppError({
     kind: "unknown",
     message: DEFAULT_MESSAGE,
+    suggestion: DEFAULT_KIND_SUGGESTIONS.unknown,
     retryable: false,
     cause: error,
   });
